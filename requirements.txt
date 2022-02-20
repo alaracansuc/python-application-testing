@@ -1,0 +1,49 @@
+Welcome to my python application to get data from gcs bucket and filter data accordingly.
+
+This application is a desktop application and needs to be run with an external application like pycharm or command prompt.
+
+Before starting, please install required libraries
+1.	PySimpleGUI : to mantain the application
+2.	gcsfs : to connect and get data from gcs
+3.	pyarrow : to read parquet datasets
+4.	pandas : to make necessary filtering actions on parquet datasets as pandas dataframes
+
+To get the data as output below, you need to follow steps below.
+
+Requirements:
+For this app, you will need GSC project name and bucket for sessions and backend.
+You need to give at least one full_visitor_id. If you want to add more than one, please enter them using comma seperator (,).
+Your data structure for sessions need to have; full_visitor_id, operatingSystem, hit.eventAction, hit.transactionId.
+Your data structure for backend need to have frontendOrderId, geopointCustomer and geopointDropoff.
+Please first proceed to 'Filter Data' screen with the button to get your results after that,
+if you want to download your data please press 'Download Data' button.\n\
+If you want to filter your data, please press 'Find Data' button and if you want to download your data please select Ok button.
+
+For 1 full_visitor_id:
+{ 
+
+   "full_visitor_id": "[numeric]",
+   "address_changed": "[boolean]",
+   "is_order_placed": "[boolean]",
+   "is_order_delivered": "[boolean]",
+   "application_type": "[iOS|Android|BlackBerry]" 
+}
+
+For more than 1 full_visitor_id:
+[{ 
+
+   "full_visitor_id": "[numeric]",
+   "address_changed": "[boolean]",
+   "is_order_placed": "[boolean]",
+   "is_order_delivered": "[boolean]",
+   "application_type": "[iOS|Android|BlackBerry]" 
+},{ 
+
+   "full_visitor_id": "[numeric]",
+   "address_changed": "[boolean]",
+   "is_order_placed": "[boolean]",
+   "is_order_delivered": "[boolean]",
+   "application_type": "[iOS|Android|BlackBerry]" 
+},...]
+
+

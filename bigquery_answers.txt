@@ -1,0 +1,406 @@
+Bigquery answers:
+1.
+SELECT
+  COUNT(*) AS totalSessions
+FROM (
+  SELECT
+    DISTINCT CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) AS uniqueSessions
+  FROM
+    `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`
+  WHERE
+    visits = 1) AS sessions
+	
+2.
+SELECT
+  fullVisitorId,
+  SUM(visits) AS numberOfSessions
+FROM
+  `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`
+WHERE
+  visits = 1
+GROUP BY
+  fullVisitorId
+
+3.
+SELECT
+  ROUND(CAST(AVG(time)/1000/60 AS float64),4) AS avgTimePerSession
+FROM (
+  SELECT
+    DISTINCT date,
+    visitId,
+    fullvisitorid,
+    hour,
+    time,
+    hitNumber,
+    MIN(hitNumber) OVER(PARTITION BY date, visitId, fullvisitorid) AS minHitNumber
+  FROM
+    `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+    UNNEST(hit) AS hit
+  WHERE
+    LOWER(eventCategory) LIKE '%order_confirmation%'
+    AND eventaction LIKE '%opened%')
+WHERE
+  hitNumber = minHitNumber
+
+
+4. (option 1 like python code)
+PART1:
+SELECT
+  eventcategory,
+  COUNT(uniqueSessions),
+  eventaction
+FROM (
+  SELECT
+    DISTINCT CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) AS uniqueSessions,
+    eventCategory,
+    eventaction
+  FROM
+    `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+    UNNEST(hit)
+  WHERE
+    visits = 1
+    AND eventaction IN ( 'address.submitted',
+      'address_update.submitted',
+      'address_update.clicked',
+      'geolocation_dialogue.accepted',
+      'address_edit.clicked',
+      'new_address.clicked',
+      'other_location.clicked',
+      'geolocation.received')
+    AND (eventcategory LIKE '%order_confirmation%'
+      OR eventcategory LIKE '%checkout%'
+      OR eventcategory LIKE '%home%'
+      OR eventcategory LIKE '%list%'))
+GROUP BY
+  eventcategory,
+  eventaction
+  
+PART2:
+SELECT
+  SUM(CASE
+      WHEN geopointCustomer IS NOT NULL THEN 1
+    ELSE
+    0
+  END
+    ) numberOfOrdersPlaced,
+  SUM(CASE
+      WHEN ST_DISTANCE(geopointDropoff, geopointCustomer) = 0 THEN 1
+    ELSE
+    0
+  END
+    ) numberOfOrderDestinationMatch
+FROM
+  `dhh-analytics-hiringspace.BackendDataSample.transactionalData` AS transactionalData
+WHERE
+  frontendOrderId IN (
+  SELECT
+    DISTINCT transactionid
+  FROM
+    `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+    UNNEST(hit)
+  WHERE
+    CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) IN (
+    SELECT
+      DISTINCT CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string))
+    FROM
+      `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+      UNNEST(hit)
+    WHERE
+      visits = 1
+      AND eventaction IN ( 'address.submitted',
+        'address_update.submitted',
+        'address_update.clicked',
+        'geolocation_dialogue.accepted',
+        'address_edit.clicked',
+        'new_address.clicked',
+        'other_location.clicked',
+        'geolocation.received')
+      AND (eventcategory LIKE '%order_confirmation%'
+        OR eventcategory LIKE '%checkout%'
+        OR eventcategory LIKE '%home%'
+        OR eventcategory LIKE '%list%'))
+    AND transactionid IS NOT NULL)
+	
+4. (option 2)
+
+PART1:
+SELECT
+  eventCategory,
+  ROUND(COUNT(uniqueSessions)/SUM(COUNT(uniqueSessions)) OVER(),2) AS percentageOfVisitor
+FROM (
+  SELECT
+    DISTINCT
+    CASE
+      WHEN hitNumber <> minHitNumber AND LatLon <> prevLatLon THEN 1
+    ELSE
+    0
+  END
+    AS Change,
+    CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) AS uniqueSessions,
+    CASE
+      WHEN eventCategory LIKE '%order_confirmation%' OR eventCategory LIKE '%checkout%' THEN 'LATER'
+    ELSE
+    'EARLIER'
+  END
+    AS eventCategory
+  FROM (
+    SELECT
+      fullvisitorid,
+      visitid,
+      eventCategory,
+      eventaction,
+      hitNumber,
+      latLon,
+      LAG(latLon) OVER (PARTITION BY fullvisitorid, visitid ORDER BY hitNumber) AS prevLatLon,
+      MIN(hitNumber) OVER(PARTITION BY fullvisitorid, visitid) AS minHitNumber
+    FROM (
+      SELECT
+        fullvisitorid,
+        visitid,
+        eventCategory,
+        eventaction,
+        hitNumber,
+        STRING_AGG(value) AS latLon
+      FROM (
+        SELECT
+          fullvisitorid,
+          visitid,
+          eventaction,
+          eventCategory,
+          hitNumber,
+          value,
+          INDEX
+        FROM
+          `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+          UNNEST(hit) AS hit,
+          UNNEST(customDimensions) AS customDimensions
+        WHERE
+          INDEX IN (18,
+            19)
+          AND visits = 1
+        ORDER BY
+          fullvisitorid asc,
+          visitid asc,
+          hitNumber asc,
+          INDEX desc)
+      GROUP BY
+        1,
+        2,
+        3,
+        4,
+        5
+      ORDER BY
+        1,
+        2,
+        4 ))
+  WHERE
+    eventcategory LIKE '%order_confirmation%'
+    OR eventcategory LIKE '%checkout%'
+    OR eventcategory LIKE '%home%'
+    OR eventcategory LIKE '%list%')
+WHERE
+  Change = 1
+GROUP BY
+  eventCategory
+  
+PART2:
+  
+SELECT
+  SUM(CASE
+      WHEN geopointCustomer IS NOT NULL THEN 1
+    ELSE
+    0
+  END
+    ) numberOfOrdersPlaced,
+  SUM(CASE
+      WHEN ST_DISTANCE(geopointDropoff, geopointCustomer) = 0 THEN 1
+    ELSE
+    0
+  END
+    ) numberOfOrderDestinationMatch
+FROM
+  `dhh-analytics-hiringspace.BackendDataSample.transactionalData` AS transactionalData
+WHERE
+  frontendOrderId IN (
+  SELECT
+    DISTINCT transactionid
+  FROM
+    `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+    UNNEST(hit)
+  WHERE
+    CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) IN (
+    SELECT
+      uniqueSessions
+    FROM (
+      SELECT
+        DISTINCT
+        CASE
+          WHEN hitNumber <> minHitNumber AND LatLon <> prevLatLon THEN 1
+        ELSE
+        0
+      END
+        AS Change,
+        CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) AS uniqueSessions,
+        CASE
+          WHEN eventCategory LIKE '%order_confirmation%' OR eventCategory LIKE '%checkout%' THEN 'LATER'
+        ELSE
+        'EARLIER'
+      END
+        AS eventCategory
+      FROM (
+        SELECT
+          fullvisitorid,
+          visitid,
+          eventCategory,
+          eventaction,
+          hitNumber,
+          latLon,
+          LAG(latLon) OVER (PARTITION BY fullvisitorid, visitid ORDER BY hitNumber) AS prevLatLon,
+          MIN(hitNumber) OVER(PARTITION BY fullvisitorid, visitid) AS minHitNumber
+        FROM (
+          SELECT
+            fullvisitorid,
+            visitid,
+            eventCategory,
+            eventaction,
+            hitNumber,
+            STRING_AGG(value) AS latLon
+          FROM (
+            SELECT
+              fullvisitorid,
+              visitid,
+              eventaction,
+              eventCategory,
+              hitNumber,
+              value,
+              INDEX
+            FROM
+              `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+              UNNEST(hit) AS hit,
+              UNNEST(customDimensions) AS customDimensions
+            WHERE
+              INDEX IN (18,
+                19)
+              AND visits = 1
+            ORDER BY
+              fullvisitorid asc,
+              visitid asc,
+              hitNumber asc,
+              INDEX desc)
+          GROUP BY
+            1,
+            2,
+            3,
+            4,
+            5
+          ORDER BY
+            1,
+            2,
+            4 ))
+      WHERE
+        eventcategory LIKE '%order_confirmation%'
+        OR eventcategory LIKE '%checkout%'
+        OR eventcategory LIKE '%home%'
+        OR eventcategory LIKE '%list%')
+    WHERE
+      Change = 1
+    GROUP BY
+      eventCategory,
+      uniqueSessions )
+    AND transactionid IS NOT NULL)
+	
+4. Part3 get data in bigquery-test-project project:
+
+https://datastudio.google.com/reporting/2505159a-9151-4ff2-8ba3-a678d579a7b6
+
+SELECT
+  *
+FROM (
+  SELECT
+    DISTINCT
+    CASE
+      WHEN INDEX = 18 THEN 'location'
+      WHEN INDEX = 16 THEN 'locationCity'
+      WHEN INDEX = 15 THEN 'locationCountry'
+      WHEN INDEX = 11 THEN 'pageType'
+      WHEN INDEX = 25 THEN 'orderPaymentMethod'
+      WHEN INDEX = 40 THEN 'userLoggedIn'
+  END
+    AS Name,
+    CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) AS uniqueSessionId,
+    value
+  FROM (
+    SELECT
+      fullvisitorid,
+      visitid,
+      hitNumber,
+      INDEX,
+      MAX(hitNumber) OVER(PARTITION BY fullvisitorid, visitid, INDEX) maxHitNumber,
+      value
+    FROM
+      `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+      UNNEST(hit),
+      UNNEST(customDimensions)
+    WHERE
+      INDEX IN (11,
+        15,
+        16,
+        25,
+        40))
+  WHERE
+    hitNumber = maxHitNumber
+  UNION ALL
+  SELECT
+    DISTINCT
+    CASE
+      WHEN INDEX = 18 THEN 'location'
+      WHEN INDEX = 16 THEN 'locationCity'
+      WHEN INDEX = 15 THEN 'locationCountry'
+      WHEN INDEX = 11 THEN 'pageType'
+      WHEN INDEX = 25 THEN 'orderPaymentMethod'
+      WHEN INDEX = 40 THEN 'userLoggedIn'
+  END
+    AS Name,
+    CONCAT(CAST(visitId AS string), CAST(fullVisitorId AS string)) AS uniqueSessionId,
+    value
+  FROM (
+    SELECT
+      DISTINCT fullvisitorid,
+      visitid,
+      18 AS INDEX,
+      hitNumber,
+      MAX(hitNumber) OVER(PARTITION BY fullvisitorid, visitid) AS maxHitNumber,
+      STRING_AGG(value) AS value
+    FROM (
+      SELECT
+        fullvisitorid,
+        visitid,
+        hitNumber,
+        value,
+        INDEX
+      FROM
+        `dhh-analytics-hiringspace.GoogleAnalyticsSample.ga_sessions_export`,
+        UNNEST(hit) AS hit,
+        UNNEST(customDimensions) AS customDimensions
+      WHERE
+        INDEX IN (18,
+          19)
+        AND value <> 'NA'
+        AND visits = 1
+      ORDER BY
+        fullvisitorid ASC,
+        visitid ASC,
+        hitNumber ASC,
+        INDEX DESC)
+    GROUP BY
+      1,
+      2,
+      3,
+      4)
+  WHERE
+    hitNumber = maxHitNumber) PIVOT ( MIN(value) FOR Name IN ('pageType',
+      'locationCountry',
+      'locationCity',
+      'location',
+      'orderPaymentMethod',
+      'userLoggedIn') )
