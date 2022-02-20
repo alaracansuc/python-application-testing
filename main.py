@@ -110,7 +110,7 @@ while True:
                 file_path_sessions.append("gs://" + s_sessions)
             arrow_df_sessions = pq.ParquetDataset(file_path_sessions, filesystem=gs)
             df_sessions_data = arrow_df_sessions.read_pandas().to_pandas()
-       except:
+        except:
             print("there is a problem loading data, please retry")
             exit(1)
         #getting one or more full_visitor_ids into list
